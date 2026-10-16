@@ -20,11 +20,11 @@ __all__ = ["UriTemplateExtractor", "normalize_uri", "extract_uri_template"]
 def _mask_high_cardinality(text: str) -> str:
     """Replace common high-cardinality values (UUID, long hex, IPv4, numeric segments) with "<*>"."""
     try:
-        text = re.sub(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", "<*>", text, flags=re.IGNORECASE)
-        text = re.sub(r"(?<![0-9a-fA-F])[0-9a-fA-F]{32}(?![0-9a-fA-F])", "<*>", text, flags=re.IGNORECASE)
-        text = re.sub(r"(?<![0-9a-fA-F])[0-9a-fA-F]{16,}(?![0-9a-fA-F])", "<*>", text, flags=re.IGNORECASE)
-        text = re.sub(r"(?:[0-9]{1,3}\.){3}[0-9]{1,3}", "<*>", text)
-        text = re.sub(r"/(?P<num>[0-9]+)(?=/|$)", r"/<*>", text)
+        text = re.sub(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", "<UUID>", text, flags=re.IGNORECASE)
+        text = re.sub(r"(?<![0-9a-fA-F])[0-9a-fA-F]{32}(?![0-9a-fA-F])", "<HEX>", text, flags=re.IGNORECASE)
+        text = re.sub(r"(?<![0-9a-fA-F])[0-9a-fA-F]{16,}(?![0-9a-fA-F])", "<HEX>", text, flags=re.IGNORECASE)
+        text = re.sub(r"(?:[0-9]{1,3}\.){3}[0-9]{1,3}", "<IP>", text)
+        text = re.sub(r"/(?P<num>[0-9]+)(?=/|$)", r"/<NUM>", text)
         # Heuristic: mask probable username-like segments: alpha-numeric, length >=6,
         # not common path words (api, users, login, profile, files, products, etc.)
         common_tokens = [
@@ -46,7 +46,7 @@ def _mask_high_cardinality(text: str) -> str:
                 return "/" + seg
             # mask if length >=6 and alphanumeric (allow hyphen/underscore)
             if re.fullmatch(r"[A-Za-z0-9_-]{6,}", seg):
-                return "/<*>"
+                return "/<USER>"
             return "/" + seg
 
         text = re.sub(r"/([A-Za-z0-9_-]{3,})(?=/|$)", _mask_user_segment, text)
@@ -74,19 +74,22 @@ def normalize_uri(uri: str, include_query: bool = False) -> str:
             return seg
         # UUID
         if re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", seg):
-            return "<*>"
+            return "<UUID>"
         # compact 32 hex
         if re.fullmatch(r"[0-9a-fA-F]{32}", seg):
-            return "<*>"
+            return "<HEX>"
         # long hex
         if re.fullmatch(r"[0-9a-fA-F]{16,}", seg):
-            return "<*>"
+            return "<HEX>"
         # IPv4
         if re.fullmatch(r"(?:[0-9]{1,3}\\.){3}[0-9]{1,3}", seg):
-            return "<*>"
+            return "<IP>"
         # numeric
         if re.fullmatch(r"[0-9]+", seg):
-            return "<*>"
+            return "<NUM>"
+        # filename with extension (e.g., report.pdf)
+        if re.fullmatch(r"[A-Za-z0-9_\-]+\.[A-Za-z0-9]{1,8}", seg):
+            return "<FILE>"
         return seg
 
     masked_parts = [mask_segment(s) for s in path.split("/") if s != ""]
@@ -149,41 +152,35 @@ class UriTemplateExtractor:
     def extract(self, uri: str) -> str:
         """Normalize the URI, mine it with drain3, and return the template."""
         normalized = normalize_uri(uri, self._include_query)
-        # Extra safety: ensure common high-cardinality patterns are masked in the
-        # normalized string (catch any missed by normalize_uri).
-        # Mask UUIDs, long hex, IPv4, and pure numeric path segments.
-        try:
-            # UUID
-            normalized = re.sub(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", "<*>", normalized, flags=re.IGNORECASE)
-            # 32-char hex
-            normalized = re.sub(r"(?<![0-9a-fA-F])[0-9a-fA-F]{32}(?![0-9a-fA-F])", "<*>", normalized, flags=re.IGNORECASE)
-            # long hex (16+)
-            normalized = re.sub(r"(?<![0-9a-fA-F])[0-9a-fA-F]{16,}(?![0-9a-fA-F])", "<*>", normalized, flags=re.IGNORECASE)
-            # IPv4
-            normalized = re.sub(r"(?:[0-9]{1,3}\.){3}[0-9]{1,3}", "<*>", normalized)
-            # numeric path segments (slash-delimited)
-            normalized = re.sub(r"/(?P<num>[0-9]+)(?=/|$)", r"/<*>", normalized)
-        except Exception:
-            # If regex fails for any reason, continue with original normalized
-            pass
+        # Apply high-cardinality masking prior to tokenization so drain3 sees
+        # masked segments expressed as meaningful placeholders (e.g. <UUID>). 
+        normalized = _mask_high_cardinality(normalized)
         # Tokenize on "/" by converting to a space-delimited line.
         line = normalized.replace("://", " ", 1).replace("/", " ").strip()
         with self._lock:
             result = self._miner.add_log_message(line)
-        tokens = result["template_mined"].split()
+        tokens_out = result.get("template_mined", "").split()
+        tokens_in = line.split()
 
-        # normalize known drain3 mask tokens to the configured wildcard
-        mask_tokens = {
-            "<*>", "<NUM>", "<UUID>", "<IP>", "<HEX>",
-            "<<NUM>>", "<<UUID>>", "<<IP>>", "<<HEX>>", "<NUMS>"
-        }
-        tokens = [self._wildcard if t in mask_tokens or re.fullmatch(r"<+\w+>+", t) else t for t in tokens]
-        if "://" in normalized and len(tokens) >= 2:
-            scheme, host, rest = tokens[0], tokens[1], tokens[2:]
+        # drain3 may replace tokens with generic "<*>"; map those back to our
+        # input tokens (which contain meaningful placeholders like <UUID>,
+        # <NUM>, <USER>) when lengths align.
+        mapped_tokens = []
+        if len(tokens_out) == len(tokens_in) and len(tokens_out) > 0:
+            for out_t, in_t in zip(tokens_out, tokens_in):
+                if out_t == "<*>" or re.fullmatch(r"<+\w+>+", out_t):
+                    mapped_tokens.append(in_t)
+                else:
+                    mapped_tokens.append(out_t)
+        else:
+            # Fallback: use the input tokens (already masked) so we preserve types
+            mapped_tokens = tokens_in
+
+        if "://" in normalized and len(mapped_tokens) >= 2:
+            scheme, host, rest = mapped_tokens[0], mapped_tokens[1], mapped_tokens[2:]
             out = f"{scheme}://{host}" + "".join("/" + t for t in rest)
-            # ensure any missed high-cardinality tokens are masked in the final output
             return _mask_high_cardinality(out)
-        return _mask_high_cardinality("/".join(tokens))
+        return _mask_high_cardinality("/".join(mapped_tokens))
 
 
 _default_extractor: Optional[UriTemplateExtractor] = None

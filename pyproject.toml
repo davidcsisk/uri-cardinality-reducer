@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "uri-cardinality-reducer"
+version = "0.1.0"
+description = "Extract low-cardinality URI templates from real URI's, requires drain3."
+requires-python = ">=3.8"
+dependencies = ["drain3"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+uri_cardinality_reducer = ["drain3.ini"]

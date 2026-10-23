@@ -1,0 +1,8 @@
+pyproject.toml
+src/uri_cardinality_reducer/__init__.py
+src/uri_cardinality_reducer/drain3.ini
+src/uri_cardinality_reducer.egg-info/PKG-INFO
+src/uri_cardinality_reducer.egg-info/SOURCES.txt
+src/uri_cardinality_reducer.egg-info/dependency_links.txt
+src/uri_cardinality_reducer.egg-info/requires.txt
+src/uri_cardinality_reducer.egg-info/top_level.txt

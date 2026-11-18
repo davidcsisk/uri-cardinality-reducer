@@ -6,3 +6,4 @@ src/uri_cardinality_reducer.egg-info/SOURCES.txt
 src/uri_cardinality_reducer.egg-info/dependency_links.txt
 src/uri_cardinality_reducer.egg-info/requires.txt
 src/uri_cardinality_reducer.egg-info/top_level.txt
+tests/test_email_masking.py

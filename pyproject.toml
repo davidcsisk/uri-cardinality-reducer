@@ -6,8 +6,15 @@ build-backend = "setuptools.build_meta"
 name = "uri-cardinality-reducer"
 version = "0.1.0"
 description = "Extract low-cardinality URI templates from real URI's, requires drain3."
+readme = "README.md"
 requires-python = ">=3.8"
 dependencies = ["drain3"]
+authors = [
+    {name = "David C. Sisk"}
+]
+
+[project.urls]
+Repository = "https://github.com/davidcsisk/uri-cardinality-reducer"
 
 [tool.setuptools.packages.find]
 where = ["src"]

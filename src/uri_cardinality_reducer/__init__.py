@@ -22,8 +22,18 @@ __all__ = [
 
 
 def _mask_high_cardinality(text: str) -> str:
-    """Replace common high-cardinality values (UUID, long hex, IPv4, numeric segments) with "<*>"."""
+    """Replace common high-cardinality values, including email addresses and keys."""
     try:
+        text = re.sub(
+            r"(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+(?![A-Za-z0-9.-])",
+            "<EMAIL>",
+            text,
+        )
+        text = re.sub(
+            r"(?<![A-Za-z0-9+_-])[A-Za-z0-9+_-]{32,}={0,2}(?![A-Za-z0-9+_=-])",
+            "<KEY>",
+            text,
+        )
         text = re.sub(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", "<UUID>", text, flags=re.IGNORECASE)
         text = re.sub(r"(?<![0-9a-fA-F])[0-9a-fA-F]{32}(?![0-9a-fA-F])", "<HEX>", text, flags=re.IGNORECASE)
         text = re.sub(r"(?<![0-9a-fA-F])[0-9a-fA-F]{16,}(?![0-9a-fA-F])", "<HEX>", text, flags=re.IGNORECASE)
